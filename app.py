@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 # توكن البوت ومعرف الشات - يفضل تخزينهم في متغيرات بيئة على Render
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8634923674:AAFK3q-9prlbYx-jDnyvMrDIAlP8JJuc-8E")
-CHAT_ID = os.environ.get("CHAT_ID", "6850087673")
+CHAT_ID = os.environ.get("CHAT_ID", "8203901188")
 
 # دالة الحصول على معلومات IP بالتفصيل
 def get_ip_info(ip):
